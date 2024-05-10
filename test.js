@@ -88,7 +88,7 @@ describe('Block', () => {
       // Attempting to add transaction to subsequent block.
       let b2 = new Block(addr, b);
       b2.addTransaction(tx);
-      assert.isEmpty(b2.transactions);
+      assert.isNull(b2.transactions_as_merkle_tree.rootHash);
     });
   });
 

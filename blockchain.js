@@ -1,4 +1,6 @@
 "use strict";
+const MerkleTree = require('./merkle-tree.js');
+
 
 // Network message constants
 const MISSING_BLOCK = "MISSING_BLOCK";
@@ -93,31 +95,36 @@ module.exports = class Blockchain {
   static deserializeBlock(o) {
     if (o instanceof this.instance.blockClass) {
       return o;
-    }
+  }
 
-    let b = new this.instance.blockClass();
-    b.chainLength = parseInt(o.chainLength, 10);
-    b.timestamp = o.timestamp;
+  let b = new this.instance.blockClass();
+  b.chainLength = parseInt(o.chainLength, 10);
+  b.timestamp = o.timestamp;
 
-    if (b.isGenesisBlock()) {
+  if (b.isGenesisBlock()) {
       // Balances need to be recreated and restored in a map.
-      o.balances.forEach(([clientID,amount]) => {
-        b.balances.set(clientID, amount);
+      o.balances.forEach(([clientID, amount]) => {
+          b.balances.set(clientID, amount);
       });
-    } else {
+  } else {
       b.prevBlockHash = o.prevBlockHash;
       b.proof = o.proof;
       b.rewardAddr = o.rewardAddr;
-      // Likewise, transactions need to be recreated and restored in a map.
-      b.transactions = new Map();
-      if (o.transactions) o.transactions.forEach(([txID,txJson]) => {
-        let tx = this.makeTransaction(txJson);
-        b.transactions.set(txID, tx);
-      });
-    }
-
-    return b;
+      // Likewise, transactions need to be recreated and restored from the Merkle tree.
+      b.transactions_as_merkle_tree = new MerkleTree();
+      if(o.transactions_as_merkle_tree){
+        
+        o.transactions_as_merkle_tree.transactions.forEach(tx => {
+          let txNew = this.makeTransaction(tx);
+          
+          b.transactions_as_merkle_tree.insert(txNew);
+        });
+      }
   }
+
+  return b;
+  } 
+
 
   /**
    * @param  {...any} args - Arguments for the Block constructor.

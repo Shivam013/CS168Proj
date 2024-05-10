@@ -1,6 +1,7 @@
 "use strict";
 
 const Blockchain = require('./blockchain.js');
+const MerkleTree = require('./merkle-tree.js');
 
 const utils = require('./utils.js');
 
@@ -21,7 +22,7 @@ module.exports = class Block {
    *      produces a smaller value when hashed.
    * @param {Number} [coinbaseReward] - The gold that a miner earns for finding a block proof.
    */
-  constructor(rewardAddr, prevBlock, target=Blockchain.POW_TARGET, coinbaseReward=Blockchain.COINBASE_AMT_ALLOWED) {
+  constructor(rewardAddr, prevBlock, target = Blockchain.POW_TARGET, coinbaseReward = Blockchain.COINBASE_AMT_ALLOWED) {
     this.prevBlockHash = prevBlock ? prevBlock.hashVal() : null;
     this.target = target;
 
@@ -37,7 +38,7 @@ module.exports = class Block {
     }
 
     // Storing transactions in a Map to preserve key order.
-    this.transactions = new Map();
+    this.transactions_as_merkle_tree = new MerkleTree([]);
 
     // Adding toJSON methods for transactions and balances, which help with
     // serialization.
@@ -53,7 +54,7 @@ module.exports = class Block {
     // Note that this is a little simplistic -- an attacker
     // could make a long, but low-work chain.  However, this works
     // well enough for us.
-    this.chainLength = prevBlock ? prevBlock.chainLength+1 : 0;
+    this.chainLength = prevBlock ? prevBlock.chainLength + 1 : 0;
 
     this.timestamp = Date.now();
 
@@ -93,43 +94,43 @@ module.exports = class Block {
    */
   serialize() {
     return JSON.stringify(this);
-   //if (this.isGenesisBlock()) {
-   //  // The genesis block does not contain a proof or transactions,
-   //  // but is the only block than can specify balances.
-   //  /*******return `
-   //     {"chainLength": "${this.chainLength}",
-   //      "timestamp": "${this.timestamp}",
-   //      "balances": ${JSON.stringify(Array.from(this.balances.entries()))}
-   //     }
-   //  `;****/
-   //  let o = {
-   //    chainLength: this.chainLength,
-   //    timestamp: this.timestamp,
-   //    balances: Array.from(this.balances.entries()),
-   //  };
-   //  return JSON.stringify(o, ['chainLength', 'timestamp', 'balances']);
-   //} else {
-   //  // Other blocks must specify transactions and proof details.
-   //  /******return `
-   //     {"chainLength": "${this.chainLength}",
-   //      "timestamp": "${this.timestamp}",
-   //      "transactions": ${JSON.stringify(Array.from(this.transactions.entries()))},
-   //      "prevBlockHash": "${this.prevBlockHash}",
-   //      "proof": "${this.proof}",
-   //      "rewardAddr": "${this.rewardAddr}"
-   //     }
-   //  `;*****/
-   //  let o = {
-   //    chainLength: this.chainLength,
-   //    timestamp: this.timestamp,
-   //    transactions: Array.from(this.transactions.entries()),
-   //    prevBlockHash: this.prevBlockHash,
-   //    proof: this.proof,
-   //    rewardAddr: this.rewardAddr,
-   //  };
-   //  return JSON.stringify(o, ['chainLength', 'timestamp', 'transactions',
-   //       'prevBlockHash', 'proof', 'rewardAddr']);
-   //}
+    //if (this.isGenesisBlock()) {
+    //  // The genesis block does not contain a proof or transactions,
+    //  // but is the only block than can specify balances.
+    //  /*******return `
+    //     {"chainLength": "${this.chainLength}",
+    //      "timestamp": "${this.timestamp}",
+    //      "balances": ${JSON.stringify(Array.from(this.balances.entries()))}
+    //     }
+    //  `;****/
+    //  let o = {
+    //    chainLength: this.chainLength,
+    //    timestamp: this.timestamp,
+    //    balances: Array.from(this.balances.entries()),
+    //  };
+    //  return JSON.stringify(o, ['chainLength', 'timestamp', 'balances']);
+    //} else {
+    //  // Other blocks must specify transactions and proof details.
+    //  /******return `
+    //     {"chainLength": "${this.chainLength}",
+    //      "timestamp": "${this.timestamp}",
+    //      "transactions": ${JSON.stringify(Array.from(this.transactions.entries()))},
+    //      "prevBlockHash": "${this.prevBlockHash}",
+    //      "proof": "${this.proof}",
+    //      "rewardAddr": "${this.rewardAddr}"
+    //     }
+    //  `;*****/
+    //  let o = {
+    //    chainLength: this.chainLength,
+    //    timestamp: this.timestamp,
+    //    transactions: Array.from(this.transactions.entries()),
+    //    prevBlockHash: this.prevBlockHash,
+    //    proof: this.proof,
+    //    rewardAddr: this.rewardAddr,
+    //  };
+    //  return JSON.stringify(o, ['chainLength', 'timestamp', 'transactions',
+    //       'prevBlockHash', 'proof', 'rewardAddr']);
+    //}
   }
 
   toJSON() {
@@ -143,7 +144,7 @@ module.exports = class Block {
       o.balances = Array.from(this.balances.entries());
     } else {
       // Other blocks must specify transactions and proof details.
-      o.transactions = Array.from(this.transactions.entries());
+      o.transactions_as_merkle_tree = this.transactions_as_merkle_tree;
       o.prevBlockHash = this.prevBlockHash;
       o.proof = this.proof;
       o.rewardAddr = this.rewardAddr;
@@ -180,17 +181,14 @@ module.exports = class Block {
    * @returns {Boolean} - True if the transaction was added successfully.
    */
   addTransaction(tx, client) {
-    if (this.transactions.get(tx.id)) {
+    if (this.transactions_as_merkle_tree.containsTransaction(tx)) {
+
       if (client) client.log(`Duplicate transaction ${tx.id}.`);
       return false;
-    } else if (tx.sig === undefined) {
-      if (client) client.log(`Unsigned transaction ${tx.id}.`);
-      return false;
-    } else if (!tx.validSignature()) {
-      if (client) client.log(`Invalid signature for transaction ${tx.id}.`);
-      return false;
-    } else if (!tx.sufficientFunds(this)) {
-      if (client) client.log(`Insufficient gold for transaction ${tx.id}.`);
+    }
+
+    if (tx.sig === undefined || !tx.validSignature() || !tx.sufficientFunds(this)) {
+      if (client) client.log(`Invalid or insufficient funds for transaction ${tx.id}.`);
       return false;
     }
 
@@ -201,22 +199,22 @@ module.exports = class Block {
       if (client) client.log(`Replayed transaction ${tx.id}.`);
       return false;
     } else if (tx.nonce > nonce) {
-      // FIXME: Need to do something to handle this case more gracefully.
+      // FIXME: Need to handle this case more gracefully.
       if (client) client.log(`Out of order transaction ${tx.id}.`);
       return false;
     } else {
       this.nextNonce.set(tx.from, nonce + 1);
     }
 
-    // Adding the transaction to the block
-    this.transactions.set(tx.id, tx);
+    // Adding the hashed transaction to the Merkle tree
+    this.transactions_as_merkle_tree.insert(tx);
 
     // Taking gold from the sender
     let senderBalance = this.balanceOf(tx.from);
     this.balances.set(tx.from, senderBalance - tx.totalOutput());
 
     // Giving gold to the specified output addresses
-    tx.outputs.forEach(({amount, address}) => {
+    tx.outputs.forEach(({ amount, address }) => {
       let oldBalance = this.balanceOf(address);
       this.balances.set(address, amount + oldBalance);
     });
@@ -245,15 +243,16 @@ module.exports = class Block {
     if (prevBlock.rewardAddr) this.balances.set(prevBlock.rewardAddr, winnerBalance + prevBlock.totalRewards());
 
     // Re-adding all transactions.
-    let txs = this.transactions;
-    this.transactions = new Map();
-    for (let tx of txs.values()) {
+    let txs = this.transactions_as_merkle_tree.getAllTransactions();
+    this.transactions_as_merkle_tree = new MerkleTree();
+    for (let tx of txs) {
       let success = this.addTransaction(tx);
       if (!success) return false;
     }
 
     return true;
   }
+
 
   /**
    * Gets the available gold of a user identified by an address.
@@ -278,9 +277,12 @@ module.exports = class Block {
    *
    */
   totalRewards() {
-    return [...this.transactions].reduce(
-      (reward, [, tx]) => reward + tx.fee,
-      this.coinbaseReward);
+    let totalFee = 0;
+    const transactions = this.transactions_as_merkle_tree.getAllTransactions();
+    for (const tx of transactions) {
+      totalFee += tx.fee;
+    }
+    return totalFee + this.coinbaseReward;
   }
 
   /**
@@ -293,6 +295,9 @@ module.exports = class Block {
    * @returns {boolean} - True if the transaction is contained in this block.
    */
   contains(tx) {
-    return this.transactions.has(tx.id);
+    if (!this.transactions_as_merkle_tree) {
+      return false; // Merkle tree not initialized, transaction not present
+    }
+    return this.transactions_as_merkle_tree.containsTransaction(tx) !== null;
   }
 };

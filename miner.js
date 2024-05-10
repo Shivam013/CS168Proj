@@ -2,6 +2,8 @@
 
 let Blockchain = require('./blockchain.js');
 let Client = require('./client.js');
+const MerkleTree = require('./merkle-tree.js');
+
 
 /**
  * Miners are clients, but they also mine blocks looking for "proofs".
@@ -140,28 +142,33 @@ module.exports = class Miner extends Client {
     let cbTxs = new Set();
     let nbTxs = new Set();
 
-    // The new block may be ahead of the old block.  We roll back the new chain
-    // to the matching height, collecting any transactions.
+    // Roll back the new chain to the matching height, collecting transactions
     while (nb.chainLength > cb.chainLength) {
-      nb.transactions.forEach((tx) => nbTxs.add(tx));
-      nb = this.blocks.get(nb.prevBlockHash);
+        const previousBlock = this.blocks.get(nb.prevBlockHash);
+        if (!previousBlock) break; // Exit loop if previous block not found
+        previousBlock.transactions_as_merkle_tree.getAllTransactions().forEach((tx) => nbTxs.add(tx));
+        nb = previousBlock;
     }
 
-    // Step back in sync until we hit the common ancestor.
+    // Step back in sync until hitting the common ancestor
     while (cb && cb.id !== nb.id) {
-      // Store any transactions in the two chains.
-      cb.transactions.forEach((tx) => cbTxs.add(tx));
-      nb.transactions.forEach((tx) => nbTxs.add(tx));
+        if (cb.transactions_as_merkle_tree) {
+            cb.transactions_as_merkle_tree.getAllTransactions().forEach((tx) => cbTxs.add(tx));
+        }
+        if (nb.transactions_as_merkle_tree) {
+            nb.transactions_as_merkle_tree.getAllTransactions().forEach((tx) => nbTxs.add(tx));
+        }
 
-      cb = this.blocks.get(cb.prevBlockHash);
-      nb = this.blocks.get(nb.prevBlockHash);
+        cb = this.blocks.get(cb.prevBlockHash);
+        nb = this.blocks.get(nb.prevBlockHash);
     }
 
-    // Remove all transactions that the new chain already has.
+    // Remove transactions that the new chain already has
     nbTxs.forEach((tx) => cbTxs.delete(tx));
 
     return cbTxs;
-  }
+}
+
 
   /**
    * Returns false if transaction is not accepted. Otherwise stores
