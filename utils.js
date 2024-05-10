@@ -92,41 +92,30 @@ function hmacSHA512(key, data) {
   return crypto.createHmac("sha512", key).update(data).digest();
 }
 
-let validWords = new Set();
-let wordListLoaded = false;
-
-// Function to load and parse the word list from file
-function loadWordList() {
-  if (!wordListLoaded) {
-    // Ensures the word list is only loaded once
-    const filePath = path.join(__dirname, "wordlist.txt");
-    try {
-      const data = fs.readFileSync(filePath, "utf8");
-      data.split("\n").forEach((line) => {
-        const word = line.trim().split(". ")[1]; // Assuming the format "2035. wrestle"
-        if (word) validWords.add(word);
-      });
-      wordListLoaded = true; // Set flag to true after successful load
-    } catch (error) {
-      console.error("Failed to load or parse the word list:", error);
-    }
-  }
+function readWordList() {
+  const fileData = fs.readFileSync("wordlist.txt", "utf8");
+  const words = fileData
+    .split("\n")
+    .map((line) => {
+      const parts = line.split(".");
+      return parts.length > 1 ? parts[1].trim() : "";
+    })
+    .filter((word) => word);
+  return words;
 }
 
-// Function to check if a word is valid
-exports.isValidMnemonic = function (word) {
-  loadWordList(); // Ensure word list is loaded before checking
-  return validWords.has(word);
-};
-
-// Function to generate a mnemonic from the loaded word list
 exports.generateMnemonic = function () {
-  loadWordList();
-  const words = Array.from(validWords);
+  const words = readWordList();
   const indices = Array.from({ length: 12 }, () =>
     Math.floor(Math.random() * words.length)
   );
   return indices.map((index) => words[index]).join(" ");
+};
+
+// Function to check if a word is valid
+exports.isValidMnemonic = function (word) {
+  const wordList = readWordList();
+  return wordList.includes(word)
 };
 
 // Generate master key from mnemonic
