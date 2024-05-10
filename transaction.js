@@ -1,8 +1,6 @@
 "use strict";
 
 const utils = require('./utils.js');
-const MerkleTree = require('./merkle-tree.js');
-
 
 // String constants mixed in before hashing.
 const TX_CONST = "TX";
@@ -54,12 +52,13 @@ module.exports = class Transaction {
    * A transaction's ID is derived from its contents.
    */
   get id() {
-    const txData = {
+    return utils.hash(TX_CONST + JSON.stringify({
+      from: this.from,
       nonce: this.nonce,
+      pubKey: this.pubKey,
       outputs: this.outputs,
-      fee: this.fee
-    };
-    return utils.hash(TX_CONST + JSON.stringify(txData));
+      fee: this.fee,
+      data: this.data }));
   }
 
   /**
